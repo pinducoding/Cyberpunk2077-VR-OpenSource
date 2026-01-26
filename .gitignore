@@ -1,0 +1,25 @@
+# Build Output
+out/
+build/
+bin/
+lib/
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.ipch
+
+# CMake
+CMakeSettings.json
+
+# Logs
+*.log
