@@ -2,6 +2,7 @@
 #include "VRSystem.hpp"
 #include "CameraHook.hpp"
 #include "InputHook.hpp"
+#include "D3D12Hook.hpp"
 #include "Utils.hpp"
 
 // Global Systems
@@ -53,31 +54,40 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::PluginHandle aHandle, RED4ext::
             return false;
         }
 
-        // 3. Initialize Camera Hooks
+        // 3. Initialize D3D12 Hooks (captures command queue for VR)
+        if (!D3D12Hook::Initialize()) {
+            Utils::LogError("Failed to install D3D12 hooks!");
+            return false;
+        }
+
+        // 4. Initialize Camera Hooks
         g_cameraHook = std::make_unique<CameraHook>();
         if (!g_cameraHook->InstallHooks()) {
             Utils::LogError("Failed to install camera hooks!");
             return false;
         }
 
-        // 4. Initialize Input Hooks
+        // 5. Initialize Input Hooks
         if (!InputHook::Initialize()) {
             Utils::LogWarn("Failed to install Input hooks (Controller support may be limited)");
         }
 
+        Utils::LogInfo("CyberpunkVR: All systems initialized!");
         break;
     }
     case RED4ext::EMainReason::Unload:
     {
         // Cleanup in reverse order
         Utils::LogInfo("Unloading VR Mod...");
-        
+
         InputHook::Shutdown();
         g_cameraHook.reset();
+        D3D12Hook::Shutdown();
         g_vrSystem.reset();
-        
+
         g_sdk = nullptr;
         g_pluginHandle = nullptr;
+        Utils::LogInfo("CyberpunkVR: Unloaded successfully");
         break;
     }
     }

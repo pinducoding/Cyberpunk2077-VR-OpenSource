@@ -41,7 +41,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Link Libraries
 # We link against the targets defined by the subdirectories
-target_link_libraries(${PROJECT_NAME} PRIVATE 
-    RED4ext.SDK 
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    RED4ext.SDK
     openxr_loader
+    d3d12
+    dxgi
+    psapi
 )

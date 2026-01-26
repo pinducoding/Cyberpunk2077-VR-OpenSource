@@ -1,12 +1,17 @@
 #include "CameraHook.hpp"
 #include "VRSystem.hpp"
+#include "PatternScanner.hpp"
 #include "Utils.hpp"
+
+#include <RED4ext/RED4ext.hpp>
 
 // Include Vector4 for position manipulation
 #include <RED4ext/Scripting/Natives/Generated/Vector4.hpp>
 
-// Access the global VR System
+// Access the global VR System and RED4ext handles
 extern std::unique_ptr<VRSystem> g_vrSystem;
+extern RED4ext::PluginHandle g_pluginHandle;
+extern const RED4ext::Sdk* g_sdk;
 
 CameraHook::CameraHook()
 {
@@ -14,19 +19,65 @@ CameraHook::CameraHook()
 
 CameraHook::~CameraHook()
 {
+    // Hook will be automatically removed by RED4ext on unload
 }
 
 bool CameraHook::InstallHooks()
 {
-    // Example Pattern (Fake for compilation):
-    uintptr_t cameraUpdateAddr = 0; // FindPattern(...)
-    
-    if (cameraUpdateAddr == 0) {
-        Utils::LogWarn("Camera Hook Address not found (Pattern Scan unimplemented)");
-        return true; 
+    Utils::LogInfo("CameraHook: Searching for camera update function...");
+
+    // Try multiple patterns (game updates may change bytes)
+    uintptr_t cameraUpdateAddr = 0;
+
+    // Pattern 1: Primary camera update signature
+    cameraUpdateAddr = PatternScanner::FindPattern(PatternScanner::Patterns::CameraUpdate);
+
+    if (cameraUpdateAddr == 0)
+    {
+        // Pattern 2: Alternative - search for specific camera component vtable
+        // BaseCameraComponent has a virtual Update function
+        cameraUpdateAddr = PatternScanner::FindPattern(
+            "48 89 5C 24 ?? 57 48 83 EC ?? 48 8B D9 48 8B 89 ?? ?? ?? ?? 48 85 C9"
+        );
     }
 
-    Utils::LogInfo("Camera Hooks Installed");
+    if (cameraUpdateAddr == 0)
+    {
+        // Pattern 3: Fallback - look for WorldTransform access pattern
+        cameraUpdateAddr = PatternScanner::FindPattern(
+            "F3 0F 10 ?? ?? ?? ?? ?? F3 0F 10 ?? ?? ?? ?? ?? 48 8D ?? ?? ?? ?? ??"
+        );
+    }
+
+    if (cameraUpdateAddr == 0)
+    {
+        Utils::LogWarn("CameraHook: Could not find camera update function!");
+        Utils::LogWarn("CameraHook: VR head tracking will be disabled.");
+        Utils::LogWarn("CameraHook: Game may have been updated - patterns need refresh.");
+        // Return true to allow plugin to load (partial functionality)
+        return true;
+    }
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "CameraHook: Found camera update at 0x%llX",
+             static_cast<unsigned long long>(cameraUpdateAddr));
+    Utils::LogInfo(msg);
+
+    // Install the hook via RED4ext
+    bool success = g_sdk->hooking->Attach(
+        g_pluginHandle,
+        reinterpret_cast<void*>(cameraUpdateAddr),
+        reinterpret_cast<void*>(&CameraHook::OnCameraUpdate),
+        reinterpret_cast<void**>(&CameraHook::Real_CameraUpdate)
+    );
+
+    if (!success)
+    {
+        Utils::LogError("CameraHook: Failed to install hook!");
+        return false;
+    }
+
+    Utils::LogInfo("CameraHook: Hook installed successfully!");
     m_hooksInstalled = true;
     return true;
 }
@@ -67,7 +118,7 @@ void __fastcall CameraHook::OnCameraUpdate(RED4ext::ent::BaseCameraComponent* aC
     }
 
     // 6. Call Original
-    if (Real_CameraUpdate) {
-        Real_CameraUpdate(aComponent);
+    if (CameraHook::Real_CameraUpdate) {
+        CameraHook::Real_CameraUpdate(aComponent);
     }
 }
