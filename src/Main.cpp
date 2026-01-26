@@ -1,6 +1,7 @@
 #include <RED4ext/RED4ext.hpp>
 #include "VRSystem.hpp"
 #include "CameraHook.hpp"
+#include "InputHook.hpp"
 #include "Utils.hpp"
 
 // Global Systems
@@ -59,6 +60,11 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::PluginHandle aHandle, RED4ext::
             return false;
         }
 
+        // 4. Initialize Input Hooks
+        if (!InputHook::Initialize()) {
+            Utils::LogWarn("Failed to install Input hooks (Controller support may be limited)");
+        }
+
         break;
     }
     case RED4ext::EMainReason::Unload:
@@ -66,6 +72,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::PluginHandle aHandle, RED4ext::
         // Cleanup in reverse order
         Utils::LogInfo("Unloading VR Mod...");
         
+        InputHook::Shutdown();
         g_cameraHook.reset();
         g_vrSystem.reset();
         
