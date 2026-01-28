@@ -1,6 +1,7 @@
 #include "D3D12Hook.hpp"
 #include "PatternScanner.hpp"
 #include "VRSystem.hpp"
+#include "ThreadSafe.hpp"
 #include "Utils.hpp"
 
 #define WIN32_LEAN_AND_MEAN
@@ -21,74 +22,87 @@ extern std::unique_ptr<VRSystem> g_vrSystem;
 
 namespace D3D12Hook
 {
-    // Captured resources
-    static ID3D12CommandQueue* s_commandQueue = nullptr;
-    static ID3D12Resource* s_backBuffer = nullptr;
-    static IDXGISwapChain* s_swapChain = nullptr;
-    static ID3D12Device* s_device = nullptr;
+    // Thread-safe state using atomics and mutex
+    static std::mutex s_stateMutex;
+    static ComPtr<ID3D12CommandQueue> s_commandQueue;
+    static ComPtr<IDXGISwapChain> s_swapChain;
+    static ComPtr<ID3D12Device> s_device;
 
-    // State tracking
-    static bool s_initialized = false;
-    static bool s_resourcesCaptured = false;
-    static OnReadyCallback s_onReadyCallback = nullptr;
+    // Atomic flags for lock-free checks
+    static ThreadSafe::Flag s_initialized{false};
+    static ThreadSafe::Flag s_resourcesCaptured{false};
+    static ThreadSafe::Flag s_shutdownRequested{false};
+
+    // Frame counter (atomic for thread safety)
+    static ThreadSafe::Counter s_frameCount{0};
 
     // Original function pointer (trampoline)
     static HRESULT(STDMETHODCALLTYPE* Real_Present)(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) = nullptr;
 
-    // Frame counter for alternating eye rendering
-    static uint64_t s_frameCount = 0;
+    // Callback
+    static OnReadyCallback s_onReadyCallback = nullptr;
 
     // Our hook function
     static HRESULT STDMETHODCALLTYPE Hook_Present(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
     {
-        // First time capture
-        if (!s_resourcesCaptured && pSwapChain)
+        // Early exit if shutdown requested or VR disabled
+        if (s_shutdownRequested.load() || !VRConfig::IsVREnabled()) {
+            return Real_Present ? Real_Present(pSwapChain, SyncInterval, Flags) : E_FAIL;
+        }
+
+        // Null check on swapchain
+        if (!pSwapChain) {
+            Utils::LogWarn("D3D12Hook: Present called with null swapchain");
+            return Real_Present ? Real_Present(pSwapChain, SyncInterval, Flags) : E_FAIL;
+        }
+
+        // First time capture (thread-safe)
+        if (!s_resourcesCaptured.load())
         {
-            s_swapChain = pSwapChain;
+            ThreadSafe::Lock lock(s_stateMutex);
 
-            // Get the D3D12 device from swapchain
-            IDXGISwapChain3* swapChain3 = nullptr;
-            if (SUCCEEDED(pSwapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
+            // Double-check after acquiring lock
+            if (!s_resourcesCaptured.load())
             {
-                ID3D12Device* device = nullptr;
-                if (SUCCEEDED(swapChain3->GetDevice(IID_PPV_ARGS(&device))))
+                ComPtr<IDXGISwapChain3> swapChain3;
+                if (SUCCEEDED(pSwapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
                 {
-                    s_device = device;
-
-                    // Get the current back buffer
-                    UINT bufferIndex = swapChain3->GetCurrentBackBufferIndex();
-                    if (SUCCEEDED(swapChain3->GetBuffer(bufferIndex, IID_PPV_ARGS(&s_backBuffer))))
+                    ComPtr<ID3D12Device> device;
+                    if (SUCCEEDED(swapChain3->GetDevice(IID_PPV_ARGS(&device))))
                     {
-                        // Now we need to find/create a command queue
-                        // Option 1: Hook CreateCommandQueue (complex)
-                        // Option 2: Create our own queue for VR submission
-
+                        // Create our own command queue for VR submission
                         D3D12_COMMAND_QUEUE_DESC queueDesc = {};
                         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-                        queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+                        queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
                         queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
                         queueDesc.NodeMask = 0;
 
-                        if (SUCCEEDED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&s_commandQueue))))
+                        ComPtr<ID3D12CommandQueue> commandQueue;
+                        if (SUCCEEDED(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&commandQueue))))
                         {
-                            s_resourcesCaptured = true;
+                            // Store references (ComPtr handles AddRef)
+                            s_device = device;
+                            s_commandQueue = commandQueue;
+                            s_swapChain = pSwapChain;
+
+                            s_resourcesCaptured.store(true);
                             Utils::LogInfo("D3D12Hook: Resources captured successfully!");
 
                             char msg[128];
                             snprintf(msg, sizeof(msg), "D3D12Hook: Device=0x%p Queue=0x%p",
-                                     s_device, s_commandQueue);
+                                     s_device.Get(), s_commandQueue.Get());
                             Utils::LogInfo(msg);
 
-                            // Initialize VR system with the command queue
+                            // Initialize VR system with the command queue (thread-safe)
                             if (g_vrSystem)
                             {
-                                g_vrSystem->Initialize(s_commandQueue);
+                                g_vrSystem->Initialize(s_commandQueue.Get());
                             }
 
                             // Notify callback
                             if (s_onReadyCallback)
                             {
-                                s_onReadyCallback(s_commandQueue, s_swapChain);
+                                s_onReadyCallback(s_commandQueue.Get(), s_swapChain.Get());
                             }
                         }
                         else
@@ -98,56 +112,55 @@ namespace D3D12Hook
                     }
                     else
                     {
-                        Utils::LogError("D3D12Hook: Failed to get back buffer");
+                        Utils::LogError("D3D12Hook: Failed to get D3D12 device");
                     }
                 }
-                else
-                {
-                    Utils::LogError("D3D12Hook: Failed to get D3D12 device");
-                }
-                swapChain3->Release();
             }
         }
 
-        // VR Frame Submission
-        if (s_resourcesCaptured && g_vrSystem)
+        // VR Frame Submission (only if resources captured and VR system ready)
+        if (s_resourcesCaptured.load() && g_vrSystem && VRConfig::IsVREnabled())
         {
-            // Update back buffer reference each frame (it rotates)
-            IDXGISwapChain3* swapChain3 = nullptr;
+            ComPtr<IDXGISwapChain3> swapChain3;
             if (SUCCEEDED(pSwapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
             {
-                ID3D12Resource* currentBackBuffer = nullptr;
                 UINT bufferIndex = swapChain3->GetCurrentBackBufferIndex();
 
+                ComPtr<ID3D12Resource> currentBackBuffer;
                 if (SUCCEEDED(swapChain3->GetBuffer(bufferIndex, IID_PPV_ARGS(&currentBackBuffer))))
                 {
-                    // Alternate eye rendering
-                    bool isLeftEye = (s_frameCount % 2) == 0;
-                    g_vrSystem->SubmitFrame(currentBackBuffer, isLeftEye);
-                    currentBackBuffer->Release();
+                    // Alternate eye rendering (atomic increment)
+                    uint64_t frame = s_frameCount.fetch_add(1);
+                    bool isLeftEye = (frame % 2) == 0;
+
+                    g_vrSystem->SubmitFrame(currentBackBuffer.Get(), isLeftEye);
+                    // ComPtr automatically releases currentBackBuffer
                 }
-                swapChain3->Release();
             }
-            s_frameCount++;
         }
 
         // Call original Present
-        return Real_Present(pSwapChain, SyncInterval, Flags);
+        return Real_Present ? Real_Present(pSwapChain, SyncInterval, Flags) : E_FAIL;
     }
 
     bool Initialize()
     {
-        if (s_initialized)
+        if (s_initialized.load())
         {
             return true;
         }
 
         Utils::LogInfo("D3D12Hook: Initializing...");
 
-        // Method: Hook via vtable from a temporary swapchain
-        // Create a dummy D3D12 device and swapchain to get the vtable
+        // Validate RED4ext SDK
+        if (!g_sdk || !g_sdk->hooking)
+        {
+            Utils::LogError("D3D12Hook: RED4ext SDK not available");
+            return false;
+        }
 
-        IDXGIFactory4* factory = nullptr;
+        // Create temporary D3D12 resources to get vtable
+        ComPtr<IDXGIFactory4> factory;
         if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
         {
             Utils::LogError("D3D12Hook: Failed to create DXGI factory");
@@ -155,7 +168,7 @@ namespace D3D12Hook
         }
 
         // Find hardware adapter
-        IDXGIAdapter1* adapter = nullptr;
+        ComPtr<IDXGIAdapter1> adapter;
         for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i)
         {
             DXGI_ADAPTER_DESC1 desc;
@@ -164,24 +177,20 @@ namespace D3D12Hook
             {
                 break;
             }
-            adapter->Release();
-            adapter = nullptr;
+            adapter.Reset();
         }
 
         if (!adapter)
         {
             Utils::LogError("D3D12Hook: No hardware adapter found");
-            factory->Release();
             return false;
         }
 
         // Create temporary D3D12 device
-        ID3D12Device* tempDevice = nullptr;
-        if (FAILED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&tempDevice))))
+        ComPtr<ID3D12Device> tempDevice;
+        if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&tempDevice))))
         {
             Utils::LogError("D3D12Hook: Failed to create temp D3D12 device");
-            adapter->Release();
-            factory->Release();
             return false;
         }
 
@@ -189,13 +198,10 @@ namespace D3D12Hook
         D3D12_COMMAND_QUEUE_DESC queueDesc = {};
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-        ID3D12CommandQueue* tempQueue = nullptr;
+        ComPtr<ID3D12CommandQueue> tempQueue;
         if (FAILED(tempDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&tempQueue))))
         {
             Utils::LogError("D3D12Hook: Failed to create temp command queue");
-            tempDevice->Release();
-            adapter->Release();
-            factory->Release();
             return false;
         }
 
@@ -205,10 +211,20 @@ namespace D3D12Hook
         wc.lpfnWndProc = DefWindowProcW;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = L"CyberpunkVR_DummyWindow";
-        RegisterClassExW(&wc);
+
+        if (!RegisterClassExW(&wc))
+        {
+            // Class might already exist, continue anyway
+        }
 
         HWND tempWindow = CreateWindowExW(0, wc.lpszClassName, L"", WS_OVERLAPPEDWINDOW,
                                            0, 0, 100, 100, nullptr, nullptr, wc.hInstance, nullptr);
+
+        if (!tempWindow)
+        {
+            Utils::LogError("D3D12Hook: Failed to create temp window");
+            return false;
+        }
 
         // Create temporary swapchain
         DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
@@ -220,28 +236,34 @@ namespace D3D12Hook
         swapChainDesc.BufferCount = 2;
         swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
-        IDXGISwapChain1* tempSwapChain = nullptr;
-        if (FAILED(factory->CreateSwapChainForHwnd(tempQueue, tempWindow, &swapChainDesc,
-                                                    nullptr, nullptr, &tempSwapChain)))
+        ComPtr<IDXGISwapChain1> tempSwapChain;
+        HRESULT hr = factory->CreateSwapChainForHwnd(tempQueue.Get(), tempWindow, &swapChainDesc,
+                                                      nullptr, nullptr, &tempSwapChain);
+
+        if (FAILED(hr))
         {
             Utils::LogError("D3D12Hook: Failed to create temp swapchain");
             DestroyWindow(tempWindow);
             UnregisterClassW(wc.lpszClassName, wc.hInstance);
-            tempQueue->Release();
-            tempDevice->Release();
-            adapter->Release();
-            factory->Release();
             return false;
         }
 
         // Get vtable pointer for Present
-        // IDXGISwapChain vtable layout: QueryInterface, AddRef, Release, ..., Present (index 8)
-        void** vtable = *reinterpret_cast<void***>(tempSwapChain);
-        void* presentAddr = vtable[8]; // Present is at index 8
+        // IDXGISwapChain vtable layout: QueryInterface(0), AddRef(1), Release(2), ..., Present(8)
+        constexpr int PRESENT_VTABLE_INDEX = 8;
+        void** vtable = *reinterpret_cast<void***>(tempSwapChain.Get());
+        void* presentAddr = vtable[PRESENT_VTABLE_INDEX];
 
         char msg[128];
         snprintf(msg, sizeof(msg), "D3D12Hook: Present vtable address: 0x%p", presentAddr);
         Utils::LogInfo(msg);
+
+        // Cleanup temporary resources before hooking
+        tempSwapChain.Reset();
+        DestroyWindow(tempWindow);
+        UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        tempQueue.Reset();
+        tempDevice.Reset();
 
         // Install hook using RED4ext
         bool success = g_sdk->hooking->Attach(
@@ -251,18 +273,9 @@ namespace D3D12Hook
             reinterpret_cast<void**>(&Real_Present)
         );
 
-        // Cleanup temporary resources
-        tempSwapChain->Release();
-        DestroyWindow(tempWindow);
-        UnregisterClassW(wc.lpszClassName, wc.hInstance);
-        tempQueue->Release();
-        tempDevice->Release();
-        adapter->Release();
-        factory->Release();
-
         if (success)
         {
-            s_initialized = true;
+            s_initialized.store(true);
             Utils::LogInfo("D3D12Hook: Present hook installed successfully!");
             return true;
         }
@@ -275,57 +288,54 @@ namespace D3D12Hook
 
     void Shutdown()
     {
-        if (!s_initialized)
+        if (!s_initialized.load())
         {
             return;
         }
 
         Utils::LogInfo("D3D12Hook: Shutting down...");
 
-        // Detach hook
-        if (Real_Present)
+        // Signal shutdown to hook
+        s_shutdownRequested.store(true);
+
+        // Wait a frame to ensure hook isn't in use
+        Sleep(50);
+
+        // Thread-safe cleanup
         {
-            // Note: RED4ext doesn't have a public Detach, hooks are auto-removed on unload
+            ThreadSafe::Lock lock(s_stateMutex);
+
+            // ComPtr handles Release automatically
+            s_commandQueue.Reset();
+            s_swapChain.Reset();
+            s_device.Reset();
+
+            s_resourcesCaptured.store(false);
         }
 
-        // Release captured resources
-        if (s_commandQueue)
-        {
-            s_commandQueue->Release();
-            s_commandQueue = nullptr;
-        }
-        if (s_backBuffer)
-        {
-            s_backBuffer->Release();
-            s_backBuffer = nullptr;
-        }
-
-        s_swapChain = nullptr;
-        s_device = nullptr;
-        s_resourcesCaptured = false;
-        s_initialized = false;
-
+        s_initialized.store(false);
         Utils::LogInfo("D3D12Hook: Shutdown complete");
     }
 
     ID3D12CommandQueue* GetCommandQueue()
     {
-        return s_commandQueue;
+        return s_commandQueue.Get();
     }
 
     ID3D12Resource* GetBackBuffer()
     {
-        return s_backBuffer;
+        // Back buffer is now fetched fresh each frame, not stored
+        return nullptr;
     }
 
     IDXGISwapChain* GetSwapChain()
     {
-        return s_swapChain;
+        return s_swapChain.Get();
     }
 
     bool IsReady()
     {
-        return s_resourcesCaptured;
+        return s_resourcesCaptured.load();
     }
 
     void SetOnReadyCallback(OnReadyCallback callback)

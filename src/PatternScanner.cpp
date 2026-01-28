@@ -102,14 +102,21 @@ namespace PatternScanner
             return 0;
         }
 
-        const uint8_t* scanStart = reinterpret_cast<const uint8_t*>(start);
-        const uint8_t* scanEnd = scanStart + size - bytes.size();
-
-        for (const uint8_t* current = scanStart; current < scanEnd; ++current)
+        // Bounds check to prevent integer underflow
+        if (bytes.empty() || size < bytes.size())
         {
-            if (ComparePattern(current, bytes, mask))
+            Utils::LogWarn("PatternScanner: Pattern larger than search region");
+            return 0;
+        }
+
+        const uint8_t* scanStart = reinterpret_cast<const uint8_t*>(start);
+        const size_t scanSize = size - bytes.size() + 1;
+
+        for (size_t offset = 0; offset < scanSize; ++offset)
+        {
+            if (ComparePattern(scanStart + offset, bytes, mask))
             {
-                return reinterpret_cast<uintptr_t>(current);
+                return start + offset;
             }
         }
 

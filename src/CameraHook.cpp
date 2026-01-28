@@ -1,6 +1,7 @@
 #include "CameraHook.hpp"
 #include "VRSystem.hpp"
 #include "PatternScanner.hpp"
+#include "ThreadSafe.hpp"
 #include "Utils.hpp"
 
 #include <RED4ext/RED4ext.hpp>
@@ -92,15 +93,17 @@ void __fastcall CameraHook::OnCameraUpdate(RED4ext::ent::BaseCameraComponent* aC
         auto placed = reinterpret_cast<RED4ext::ent::IPlacedComponent*>(aComponent);
         
         // 3. Apply Eye Offset (AER) Logic
-        static int frameCount = 0;
-        frameCount++;
-        float ipd = 0.064f; // 64mm
-        
+        static ThreadSafe::Counter frameCount{0};
+        uint64_t frame = frameCount.fetch_add(1);
+
+        // Get configurable IPD (thread-safe)
+        float ipd = VRConfig::GetIPD();
+
         float offsetX = 0.0f;
-        if (frameCount % 2 == 0) {
-             offsetX = -(ipd / 2.0f);
+        if (frame % 2 == 0) {
+             offsetX = -(ipd / 2.0f);  // Left eye
         } else {
-             offsetX = +(ipd / 2.0f);
+             offsetX = +(ipd / 2.0f);  // Right eye
         }
 
         // 4. Construct New Position (Handling FixedPoint conversion)
