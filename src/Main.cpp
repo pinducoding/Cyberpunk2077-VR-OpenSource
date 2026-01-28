@@ -3,6 +3,7 @@
 #include "CameraHook.hpp"
 #include "InputHook.hpp"
 #include "D3D12Hook.hpp"
+#include "VRSettings.hpp"
 #include "Utils.hpp"
 
 // Global Systems
@@ -72,6 +73,9 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::PluginHandle aHandle, RED4ext::
             Utils::LogWarn("Failed to install Input hooks (Controller support may be limited)");
         }
 
+        // 6. Register Native Functions for CET Settings UI
+        VRSettings::RegisterNativeFunctions(g_sdk, g_pluginHandle);
+
         Utils::LogInfo("CyberpunkVR: All systems initialized!");
         break;
     }
@@ -80,6 +84,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::PluginHandle aHandle, RED4ext::
         // Cleanup in reverse order
         Utils::LogInfo("Unloading VR Mod...");
 
+        VRSettings::UnregisterNativeFunctions(g_sdk, g_pluginHandle);
         InputHook::Shutdown();
         g_cameraHook.reset();
         D3D12Hook::Shutdown();

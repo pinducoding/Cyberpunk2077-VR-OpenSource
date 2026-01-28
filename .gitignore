@@ -1,7 +1,6 @@
 # Build Output
 out/
 build/
-bin/
 lib/
 *.dll
 *.exe
@@ -9,6 +8,14 @@ lib/
 *.ilk
 *.exp
 *.lib
+
+# Ignore bin except CET mod source
+bin/*
+!bin/x64/
+bin/x64/*
+!bin/x64/plugins/
+bin/x64/plugins/*
+!bin/x64/plugins/cyber_engine_tweaks/
 
 # Visual Studio
 .vs/

@@ -71,8 +71,8 @@ Please include:
 |------|------------|--------|
 | Camera pattern verification | Medium | Critical |
 | VR hardware testing | Easy | Critical |
-| CET settings integration | Easy | High |
-| Controller mapping | Medium | High |
+| Motion controller aiming | Hard | High |
+| Comfort options (vignette, snap turn) | Medium | Medium |
 | Performance optimization | Hard | Medium |
 
 ## Code of Conduct

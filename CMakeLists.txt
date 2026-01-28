@@ -47,4 +47,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     d3d12
     dxgi
     psapi
+    xinput
 )

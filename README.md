@@ -16,15 +16,30 @@
 | Coordinate Conversion | ✅ Complete | OpenXR ↔ REDengine coordinate system |
 | Thread Safety | ✅ Complete | Mutex, atomics, ComPtr throughout |
 | Session Handling | ✅ Complete | Full OpenXR state machine, HMD disconnect detection |
-| XInput Hook | ✅ Complete | Framework ready for VR controller mapping |
-| CET Settings UI | ⚠️ Not Wired | Lua UI exists but doesn't connect to C++ yet |
+| VR Controller Input | ✅ Complete | OpenXR action system → XInput mapping |
+| CET Settings UI | ✅ Complete | Lua UI connected to C++ via native functions |
 
 ## Known Limitations
 
 - **Camera patterns are estimates** - May need adjustment for your game version
-- **No motion controls yet** - Uses existing gamepad/keyboard input
+- **Controller mapping is basic** - VR controllers map to gamepad buttons (no motion aiming yet)
 - **AER (Alternate Eye Rendering)** - Runs at half framerate per eye
 - **No depth buffer** - 3D effect from stereo only, no reprojection
+
+## VR Controller Mapping
+
+| VR Controller | Game Action (XInput) |
+|---------------|---------------------|
+| Left Thumbstick | Move (Left Stick) |
+| Right Thumbstick | Look (Right Stick) |
+| Left Trigger | Aim (LT) |
+| Right Trigger | Fire (RT) |
+| Left Grip | Left Shoulder (LB) |
+| Right Grip | Right Shoulder (RB) |
+| A / X Buttons | A / X |
+| B / Y Buttons | B / Y |
+| Menu Button | Start |
+| Thumbstick Click | L3 / R3 |
 
 ## Quick Start (For Testers)
 
@@ -109,14 +124,15 @@ Output: `out/build/x64-Release/bin/CyberpunkVR.dll`
 3. **Fix any crashes** - Report stack traces and repro steps.
 
 **Medium Priority (Improve Experience)**
-4. **Wire CET settings to C++** - Connect the Lua UI sliders to `VRConfig::SetIPD()` etc.
+4. ~~Wire CET settings to C++~~ ✅ Done - IPD, world scale, VR toggle now work from CET menu
 5. **Tune coordinate conversion** - The quaternion math may need adjustment.
-6. **Add VR controller support** - Map OpenXR controller actions to XInput.
+6. ~~Add VR controller support~~ ✅ Done - OpenXR controllers map to XInput gamepad
 
 **Lower Priority (Polish)**
-7. **Add comfort options** - Vignette, snap turning, etc.
-8. **Performance optimization** - Reduce copy overhead, async reprojection hints.
-9. **Documentation** - Setup guides, troubleshooting.
+7. **Motion controller aiming** - Decouple aim from head tracking for gun-pointing
+8. **Add comfort options** - Vignette, snap turning, etc.
+9. **Performance optimization** - Reduce copy overhead, async reprojection hints.
+10. **Documentation** - Setup guides, troubleshooting.
 
 ### Code Style
 - C++20 standard
