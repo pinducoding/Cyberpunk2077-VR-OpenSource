@@ -30,3 +30,4 @@ CMakeSettings.json
 
 # Logs
 *.log
+.coordination/
