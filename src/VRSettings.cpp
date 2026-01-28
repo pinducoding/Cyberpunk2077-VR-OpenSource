@@ -94,6 +94,59 @@ void Native_GetWorldScale(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* 
     }
 }
 
+// SetDecoupledAiming(enabled: Bool) -> Void
+void Native_SetDecoupledAiming(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame,
+                                void* aOut, int64_t a4)
+{
+    bool enabled;
+    RED4ext::GetParameter(aFrame, &enabled);
+    aFrame->code++;
+
+    VRConfig::SetDecoupledAiming(enabled);
+    Utils::LogInfo(enabled ? "VR: Decoupled aiming enabled via CET" : "VR: Decoupled aiming disabled via CET");
+}
+
+// GetDecoupledAiming() -> Bool
+void Native_GetDecoupledAiming(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame,
+                                bool* aOut, int64_t a4)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        *aOut = VRConfig::IsDecoupledAiming();
+    }
+}
+
+// SetAimSmoothing(factor: Float) -> Void
+void Native_SetAimSmoothing(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame,
+                             void* aOut, int64_t a4)
+{
+    float factor;
+    RED4ext::GetParameter(aFrame, &factor);
+    aFrame->code++;
+
+    // Clamp to valid range [0, 0.95]
+    if (factor < 0.0f) factor = 0.0f;
+    if (factor > 0.95f) factor = 0.95f;
+
+    VRConfig::SetAimSmoothing(factor);
+
+    char msg[64];
+    snprintf(msg, sizeof(msg), "VR: Aim smoothing set to %.2f via CET", factor);
+    Utils::LogInfo(msg);
+}
+
+// GetAimSmoothing() -> Float
+void Native_GetAimSmoothing(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame,
+                             float* aOut, int64_t a4)
+{
+    aFrame->code++;
+    if (aOut)
+    {
+        *aOut = VRConfig::GetAimSmoothing();
+    }
+}
+
 namespace VRSettings
 {
     void RegisterNativeFunctions(const RED4ext::Sdk* sdk, RED4ext::PluginHandle handle)
@@ -143,6 +196,34 @@ namespace VRSettings
         // native func CyberpunkVR_GetWorldScale() -> Float
         {
             auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_GetWorldScale", "CyberpunkVR_GetWorldScale", &Native_GetWorldScale);
+            func->SetReturnType("Float");
+            rtti->RegisterFunction(func);
+        }
+
+        // native func CyberpunkVR_SetDecoupledAiming(enabled: Bool) -> Void
+        {
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_SetDecoupledAiming", "CyberpunkVR_SetDecoupledAiming", &Native_SetDecoupledAiming);
+            func->AddParam("Bool", "enabled");
+            rtti->RegisterFunction(func);
+        }
+
+        // native func CyberpunkVR_GetDecoupledAiming() -> Bool
+        {
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_GetDecoupledAiming", "CyberpunkVR_GetDecoupledAiming", &Native_GetDecoupledAiming);
+            func->SetReturnType("Bool");
+            rtti->RegisterFunction(func);
+        }
+
+        // native func CyberpunkVR_SetAimSmoothing(factor: Float) -> Void
+        {
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_SetAimSmoothing", "CyberpunkVR_SetAimSmoothing", &Native_SetAimSmoothing);
+            func->AddParam("Float", "factor");
+            rtti->RegisterFunction(func);
+        }
+
+        // native func CyberpunkVR_GetAimSmoothing() -> Float
+        {
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_GetAimSmoothing", "CyberpunkVR_GetAimSmoothing", &Native_GetAimSmoothing);
             func->SetReturnType("Float");
             rtti->RegisterFunction(func);
         }

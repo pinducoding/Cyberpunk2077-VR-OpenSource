@@ -53,6 +53,20 @@ static BYTE FloatToByte(float value)
     return static_cast<BYTE>(value * 255.0f);
 }
 
+// Smoothing state for aim
+static float s_lastAimYaw = 0.0f;
+static float s_lastAimPitch = 0.0f;
+static float s_baseYaw = 0.0f;
+static float s_basePitch = 0.0f;
+static bool s_aimInitialized = false;
+
+// Smooth a value towards target
+static float SmoothValue(float current, float target, float smoothing)
+{
+    if (smoothing <= 0.0f) return target;
+    return current + (target - current) * (1.0f - smoothing);
+}
+
 // Our Hook
 DWORD WINAPI Hook_XInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState)
 {
@@ -95,21 +109,70 @@ DWORD WINAPI Hook_XInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState)
             pState->Gamepad.bLeftTrigger = std::max(pState->Gamepad.bLeftTrigger, FloatToByte(vrState.leftTrigger));
             pState->Gamepad.bRightTrigger = std::max(pState->Gamepad.bRightTrigger, FloatToByte(vrState.rightTrigger));
 
-            // Map VR thumbsticks to XInput thumbsticks
+            // Map VR thumbsticks to XInput thumbsticks (for movement)
             float leftX = ApplyDeadzone(vrState.leftThumbX);
             float leftY = ApplyDeadzone(vrState.leftThumbY);
-            float rightX = ApplyDeadzone(vrState.rightThumbX);
-            float rightY = ApplyDeadzone(vrState.rightThumbY);
 
-            // Combine with existing input (take whichever has greater magnitude)
             if (std::abs(leftX) > std::abs(pState->Gamepad.sThumbLX / 32767.0f))
                 pState->Gamepad.sThumbLX = FloatToShort(leftX);
             if (std::abs(leftY) > std::abs(pState->Gamepad.sThumbLY / 32767.0f))
                 pState->Gamepad.sThumbLY = FloatToShort(leftY);
-            if (std::abs(rightX) > std::abs(pState->Gamepad.sThumbRX / 32767.0f))
-                pState->Gamepad.sThumbRX = FloatToShort(rightX);
-            if (std::abs(rightY) > std::abs(pState->Gamepad.sThumbRY / 32767.0f))
-                pState->Gamepad.sThumbRY = FloatToShort(rightY);
+
+            // Decoupled aiming: use right hand controller for aim
+            if (VRConfig::IsDecoupledAiming() && vrState.rightHand.valid)
+            {
+                // Initialize base angles on first valid reading
+                if (!s_aimInitialized)
+                {
+                    s_baseYaw = vrState.rightHand.yaw;
+                    s_basePitch = vrState.rightHand.pitch;
+                    s_lastAimYaw = 0.0f;
+                    s_lastAimPitch = 0.0f;
+                    s_aimInitialized = true;
+                }
+
+                // Calculate relative aim from base position
+                float relativeYaw = vrState.rightHand.yaw - s_baseYaw;
+                float relativePitch = vrState.rightHand.pitch - s_basePitch;
+
+                // Apply smoothing
+                float smoothing = VRConfig::GetAimSmoothing();
+                s_lastAimYaw = SmoothValue(s_lastAimYaw, relativeYaw, smoothing);
+                s_lastAimPitch = SmoothValue(s_lastAimPitch, relativePitch, smoothing);
+
+                // Convert aim angles to thumbstick input
+                // Scale: typical controller sensitivity is ~90 degrees for full stick deflection
+                const float aimSensitivity = 45.0f; // degrees for full stick deflection
+                float aimX = std::max(-1.0f, std::min(1.0f, s_lastAimYaw / aimSensitivity));
+                float aimY = std::max(-1.0f, std::min(1.0f, -s_lastAimPitch / aimSensitivity)); // Invert pitch
+
+                // Override right thumbstick with aim
+                pState->Gamepad.sThumbRX = FloatToShort(aimX);
+                pState->Gamepad.sThumbRY = FloatToShort(aimY);
+
+                // Reset base if thumbstick click (recenter)
+                if (vrState.buttons & VRControllerState::BUTTON_RIGHT_THUMB)
+                {
+                    s_baseYaw = vrState.rightHand.yaw;
+                    s_basePitch = vrState.rightHand.pitch;
+                    s_lastAimYaw = 0.0f;
+                    s_lastAimPitch = 0.0f;
+                }
+            }
+            else
+            {
+                // Standard thumbstick aiming (no decoupling)
+                float rightX = ApplyDeadzone(vrState.rightThumbX);
+                float rightY = ApplyDeadzone(vrState.rightThumbY);
+
+                if (std::abs(rightX) > std::abs(pState->Gamepad.sThumbRX / 32767.0f))
+                    pState->Gamepad.sThumbRX = FloatToShort(rightX);
+                if (std::abs(rightY) > std::abs(pState->Gamepad.sThumbRY / 32767.0f))
+                    pState->Gamepad.sThumbRY = FloatToShort(rightY);
+
+                // Reset aim state when decoupled aiming is disabled
+                s_aimInitialized = false;
+            }
 
             // Increment packet number when VR input changes
             static DWORD lastVRButtons = 0;

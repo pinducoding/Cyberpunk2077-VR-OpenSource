@@ -6,6 +6,25 @@
 struct ID3D12CommandQueue;
 struct ID3D12Resource;
 
+// Hand pose for motion controller aiming
+struct VRHandPose
+{
+    // Position (meters, in game coordinate space)
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+
+    // Orientation (quaternion)
+    float qx = 0.0f, qy = 0.0f, qz = 0.0f, qw = 1.0f;
+
+    // Aim direction (unit vector, derived from orientation)
+    float aimX = 0.0f, aimY = 1.0f, aimZ = 0.0f;
+
+    // Aim angles (degrees, for input injection)
+    float yaw = 0.0f;    // Horizontal angle
+    float pitch = 0.0f;  // Vertical angle
+
+    bool valid = false;
+};
+
 // VR Controller state (matches XInput gamepad layout for easy mapping)
 struct VRControllerState
 {
@@ -29,6 +48,10 @@ struct VRControllerState
     // Controller tracking valid
     bool leftHandValid = false;
     bool rightHandValid = false;
+
+    // Hand poses for motion aiming
+    VRHandPose leftHand;
+    VRHandPose rightHand;
 
     // Button constants (XInput compatible)
     static constexpr uint16_t BUTTON_A = 0x1000;           // Right controller primary

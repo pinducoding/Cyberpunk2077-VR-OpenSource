@@ -524,13 +524,57 @@ public:
                     m_controllerState.buttons |= VRControllerState::BUTTON_B;
             }
 
-            // Hand tracking validity
+            // Hand tracking - get full pose for motion aiming
             if (m_handSpaces[hand] != XR_NULL_HANDLE)
             {
                 XrSpaceLocation handLoc = { XR_TYPE_SPACE_LOCATION };
                 if (XR_SUCCEEDED(xrLocateSpace(m_handSpaces[hand], m_appSpace, predictedTime, &handLoc)))
                 {
-                    bool valid = (handLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+                    bool posValid = (handLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+                    bool oriValid = (handLoc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0;
+                    bool valid = posValid && oriValid;
+
+                    VRHandPose* handPose = (hand == 0) ? &m_controllerState.leftHand : &m_controllerState.rightHand;
+                    handPose->valid = valid;
+
+                    if (valid)
+                    {
+                        // Convert position from OpenXR to game coordinates
+                        float worldScale = VRConfig::GetWorldScale();
+                        CoordinateConversion::OpenXRToRED(
+                            handLoc.pose.position.x * worldScale,
+                            handLoc.pose.position.y * worldScale,
+                            handLoc.pose.position.z * worldScale,
+                            handPose->x, handPose->y, handPose->z
+                        );
+
+                        // Convert orientation from OpenXR to game coordinates
+                        CoordinateConversion::OpenXRQuatToRED(
+                            handLoc.pose.orientation.x,
+                            handLoc.pose.orientation.y,
+                            handLoc.pose.orientation.z,
+                            handLoc.pose.orientation.w,
+                            handPose->qx, handPose->qy, handPose->qz, handPose->qw
+                        );
+
+                        // Calculate aim direction from quaternion (forward vector)
+                        // Forward in OpenXR is -Z, we need to transform this
+                        float qx = handPose->qx, qy = handPose->qy, qz = handPose->qz, qw = handPose->qw;
+
+                        // Rotate forward vector (0, 1, 0) in game space by quaternion
+                        // Using quaternion rotation: v' = q * v * q^-1
+                        // Simplified for unit forward vector:
+                        handPose->aimX = 2.0f * (qx * qy + qw * qz);
+                        handPose->aimY = 1.0f - 2.0f * (qx * qx + qz * qz);
+                        handPose->aimZ = 2.0f * (qy * qz - qw * qx);
+
+                        // Calculate yaw and pitch angles (degrees)
+                        // Yaw: rotation around Z axis (up)
+                        // Pitch: rotation around X axis (right)
+                        handPose->yaw = std::atan2(handPose->aimX, handPose->aimY) * (180.0f / 3.14159265f);
+                        handPose->pitch = std::asin(-handPose->aimZ) * (180.0f / 3.14159265f);
+                    }
+
                     if (hand == 0)
                         m_controllerState.leftHandValid = valid;
                     else

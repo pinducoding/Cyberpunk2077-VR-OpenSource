@@ -38,6 +38,12 @@ namespace VRConfig
     // Enable VR rendering
     inline std::atomic<bool> g_vrEnabled{true};
 
+    // Enable decoupled aiming (aim with controller, look with head)
+    inline std::atomic<bool> g_decoupledAiming{true};
+
+    // Aim smoothing factor (0 = no smoothing, 1 = max smoothing)
+    inline std::atomic<float> g_aimSmoothing{0.5f};
+
     // GPU wait timeout in milliseconds (0 = infinite)
     inline std::atomic<DWORD> g_gpuWaitTimeout{5000};
 
@@ -45,11 +51,15 @@ namespace VRConfig
     inline void SetIPD(float ipdMeters) { g_ipd.store(ipdMeters); }
     inline void SetWorldScale(float scale) { g_worldScale.store(scale); }
     inline void SetVREnabled(bool enabled) { g_vrEnabled.store(enabled); }
+    inline void SetDecoupledAiming(bool enabled) { g_decoupledAiming.store(enabled); }
+    inline void SetAimSmoothing(float factor) { g_aimSmoothing.store(factor); }
     inline void SetGPUWaitTimeout(DWORD ms) { g_gpuWaitTimeout.store(ms); }
 
     // Getters (thread-safe)
     inline float GetIPD() { return g_ipd.load(); }
     inline float GetWorldScale() { return g_worldScale.load(); }
     inline bool IsVREnabled() { return g_vrEnabled.load(); }
+    inline bool IsDecoupledAiming() { return g_decoupledAiming.load(); }
+    inline float GetAimSmoothing() { return g_aimSmoothing.load(); }
     inline DWORD GetGPUWaitTimeout() { return g_gpuWaitTimeout.load(); }
 }

@@ -8,7 +8,8 @@ local CyberpunkVR = {
         ipd = 64.0, -- mm
         worldScale = 1.0,
         uiDistance = 2.0, -- meters (future use)
-        decoupleAim = true, -- (future use)
+        decoupledAiming = true,
+        aimSmoothing = 0.5, -- 0 = none, 0.95 = max
         debugMode = false
     },
     isOverlayOpen = false,
@@ -35,13 +36,17 @@ function CyberpunkVR:SyncFromNative()
     local enabled = SafeCall("CyberpunkVR_GetEnabled")
     local ipd = SafeCall("CyberpunkVR_GetIPD")
     local worldScale = SafeCall("CyberpunkVR_GetWorldScale")
+    local decoupledAiming = SafeCall("CyberpunkVR_GetDecoupledAiming")
+    local aimSmoothing = SafeCall("CyberpunkVR_GetAimSmoothing")
 
     if enabled ~= nil then self.settings.enabled = enabled end
     if ipd ~= nil then self.settings.ipd = ipd end
     if worldScale ~= nil then self.settings.worldScale = worldScale end
+    if decoupledAiming ~= nil then self.settings.decoupledAiming = decoupledAiming end
+    if aimSmoothing ~= nil then self.settings.aimSmoothing = aimSmoothing end
 
     self.initialized = true
-    print("[CyberpunkVR] Settings synced from native: IPD=" .. self.settings.ipd .. "mm, Scale=" .. self.settings.worldScale)
+    print("[CyberpunkVR] Settings synced from native: IPD=" .. self.settings.ipd .. "mm, Scale=" .. self.settings.worldScale .. ", DecoupledAim=" .. tostring(self.settings.decoupledAiming))
 end
 
 function CyberpunkVR:ApplySettings()
@@ -49,6 +54,8 @@ function CyberpunkVR:ApplySettings()
     SafeCall("CyberpunkVR_SetEnabled", self.settings.enabled)
     SafeCall("CyberpunkVR_SetIPD", self.settings.ipd)
     SafeCall("CyberpunkVR_SetWorldScale", self.settings.worldScale)
+    SafeCall("CyberpunkVR_SetDecoupledAiming", self.settings.decoupledAiming)
+    SafeCall("CyberpunkVR_SetAimSmoothing", self.settings.aimSmoothing)
 
     if self.settings.debugMode then
         print("[CyberpunkVR] Settings applied to native")
@@ -131,12 +138,30 @@ function CyberpunkVR:OnDraw()
         self.settings.uiDistance = ImGui.SliderFloat("UI Distance (m)", self.settings.uiDistance, 0.5, 5.0, "%.1f")
         ImGui.EndDisabled()
 
-        -- Input Settings (placeholder)
+        -- Input Settings
         ImGui.Separator()
-        ImGui.Text("Input (Coming Soon)")
-        ImGui.BeginDisabled()
-        self.settings.decoupleAim = ImGui.Checkbox("Decoupled Aiming", self.settings.decoupleAim)
-        ImGui.EndDisabled()
+        ImGui.Text("Motion Controller Aiming")
+
+        local decoupled, decoupledChanged = ImGui.Checkbox("Decoupled Aiming", self.settings.decoupledAiming)
+        if decoupledChanged then
+            self.settings.decoupledAiming = decoupled
+            SafeCall("CyberpunkVR_SetDecoupledAiming", decoupled)
+        end
+        ImGui.SameLine()
+        ImGui.TextColored(0.5, 0.5, 0.5, 1.0, "(Aim with controller)")
+
+        local smoothing, smoothingChanged = ImGui.SliderFloat("Aim Smoothing", self.settings.aimSmoothing, 0.0, 0.95, "%.2f")
+        if smoothingChanged then
+            self.settings.aimSmoothing = smoothing
+            SafeCall("CyberpunkVR_SetAimSmoothing", smoothing)
+        end
+        ImGui.SameLine()
+        if ImGui.Button("Reset##Smoothing") then
+            self.settings.aimSmoothing = 0.5
+            SafeCall("CyberpunkVR_SetAimSmoothing", 0.5)
+        end
+
+        ImGui.TextColored(0.5, 0.5, 0.5, 1.0, "Click right stick to recenter aim")
 
         -- Debug
         ImGui.Separator()
