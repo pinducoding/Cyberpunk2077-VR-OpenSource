@@ -5,8 +5,12 @@
 #include <RED4ext/RED4ext.hpp>
 
 // Windows Headers
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <xinput.h>
 

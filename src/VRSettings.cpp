@@ -103,80 +103,46 @@ namespace VRSettings
         auto rtti = RED4ext::CRTTISystem::Get();
 
         // Register global functions that CET can call
-        // Function signature: native func CyberpunkVR_SetEnabled(enabled: Bool) -> Void
+        // Use CGlobalFunction for global (non-class) functions
+
+        // native func CyberpunkVR_SetEnabled(enabled: Bool) -> Void
         {
-            auto func = RED4ext::CClassStaticFunction::Create(
-                nullptr,  // No class - global function
-                "CyberpunkVR_SetEnabled",
-                "CyberpunkVR_SetEnabled",
-                &Native_SetVREnabled,
-                { .isNative = true, .isStatic = true }
-            );
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_SetEnabled", "CyberpunkVR_SetEnabled", &Native_SetVREnabled);
             func->AddParam("Bool", "enabled");
             rtti->RegisterFunction(func);
         }
 
         // native func CyberpunkVR_GetEnabled() -> Bool
         {
-            auto func = RED4ext::CClassStaticFunction::Create(
-                nullptr,
-                "CyberpunkVR_GetEnabled",
-                "CyberpunkVR_GetEnabled",
-                &Native_GetVREnabled,
-                { .isNative = true, .isStatic = true }
-            );
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_GetEnabled", "CyberpunkVR_GetEnabled", &Native_GetVREnabled);
             func->SetReturnType("Bool");
             rtti->RegisterFunction(func);
         }
 
         // native func CyberpunkVR_SetIPD(ipdMM: Float) -> Void
         {
-            auto func = RED4ext::CClassStaticFunction::Create(
-                nullptr,
-                "CyberpunkVR_SetIPD",
-                "CyberpunkVR_SetIPD",
-                &Native_SetIPD,
-                { .isNative = true, .isStatic = true }
-            );
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_SetIPD", "CyberpunkVR_SetIPD", &Native_SetIPD);
             func->AddParam("Float", "ipdMM");
             rtti->RegisterFunction(func);
         }
 
         // native func CyberpunkVR_GetIPD() -> Float
         {
-            auto func = RED4ext::CClassStaticFunction::Create(
-                nullptr,
-                "CyberpunkVR_GetIPD",
-                "CyberpunkVR_GetIPD",
-                &Native_GetIPD,
-                { .isNative = true, .isStatic = true }
-            );
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_GetIPD", "CyberpunkVR_GetIPD", &Native_GetIPD);
             func->SetReturnType("Float");
             rtti->RegisterFunction(func);
         }
 
         // native func CyberpunkVR_SetWorldScale(scale: Float) -> Void
         {
-            auto func = RED4ext::CClassStaticFunction::Create(
-                nullptr,
-                "CyberpunkVR_SetWorldScale",
-                "CyberpunkVR_SetWorldScale",
-                &Native_SetWorldScale,
-                { .isNative = true, .isStatic = true }
-            );
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_SetWorldScale", "CyberpunkVR_SetWorldScale", &Native_SetWorldScale);
             func->AddParam("Float", "scale");
             rtti->RegisterFunction(func);
         }
 
         // native func CyberpunkVR_GetWorldScale() -> Float
         {
-            auto func = RED4ext::CClassStaticFunction::Create(
-                nullptr,
-                "CyberpunkVR_GetWorldScale",
-                "CyberpunkVR_GetWorldScale",
-                &Native_GetWorldScale,
-                { .isNative = true, .isStatic = true }
-            );
+            auto func = RED4ext::CGlobalFunction::Create("CyberpunkVR_GetWorldScale", "CyberpunkVR_GetWorldScale", &Native_GetWorldScale);
             func->SetReturnType("Float");
             rtti->RegisterFunction(func);
         }
